@@ -2,93 +2,82 @@
 # -*- coding: utf-8 -*-
 
 import argparse
-import os
-import struct
+import os.path
 
-import HuffParser as huffparser
-import HuffTree as hufftree
+from bitstring import BitArray
 
-
-def binstr2bytearray(binstr):
-    """ Convert "01101..." string to a byte array """
-    buf = ""
-    out = bytearray()
-    for char in binstr:
-        buf += char
-        while len(buf) >= 8:
-            out.append(int(buf[0:8], 2))
-            buf = buf[8:]
-    # buf left over is padded with 0!
-    out.append(int(buf[:].ljust(8, '0'), 2))
-    return out
+import huffprob
+import hufftree
 
 
 def main():
     """ Main code to compress a text file """
-    my_argparse = argparse.ArgumentParser(description="Main arg parser")
-    my_argparse.add_argument("-i", "--in_file",
-                             help="source filepath to compress",
-                             type=str)
-    my_argparse.add_argument("-s", "--static",
-                             help="static huffman compression",
-                             action="store_true")
-    my_argparse.add_argument("-a", "--adaptative",
-                             help="semi adaptative huffman compression",
-                             action="store_true")
+    huff_arg_parser = argparse.ArgumentParser(description="Main arg parser")
+    huff_arg_parser.add_argument("-i", "--in_file",
+                                 help="source filepath to compress",
+                                 type=str)
 
-    args = my_argparse.parse_args()
-    source_file = args.in_file
+    args = huff_arg_parser.parse_args()
+    source_filepath = args.in_file
     try:
-        txt = open(source_file, "rb").read().decode('utf-8')
+        source_file = open(source_filepath, "rb").read().decode('utf-8')
     except IOError as e:
         print("I/O error({}): {}".format(e.errno, e.strerror))
+    except:
+        print("{} is not a valid encoded utf-8 file".format(source_file))
 
-    myhuffparser = huffparser.HuffParser(txt)
-    stats = myhuffparser.get_stats()
+    # ----------------------------------------------------------------------- #
+    # Get information on the source file:
+    #   - Alphabet and weight of each symbol from the alphabet
+    # ----------------------------------------------------------------------- #
+    huff_prob = huffprob.HuffProb(source_file)
+    stats = huff_prob.get_stats()
 
-    mytree = hufftree.HuffTree(stats)
-    mytree.setCode()
+    # ----------------------------------------------------------------------- #
+    # Build the Huffman tree and the prefix-free binary code for each symbol
+    # ----------------------------------------------------------------------- #
+    huff_tree = hufftree.HuffTree(stats)
 
-    char_code = {}
-    for leaf in mytree.getLeafs():
-        char_code[leaf.name] = leaf.code
+    # ----------------------------------------------------------------------- #
+    # Encode the source file using the prefix-free binary code
+    # ----------------------------------------------------------------------- #
+    codewords = huff_tree.get_codewords()
+    buf = BitArray()
+    for char in source_file:
+        buf += codewords[char]
 
-    # Encode each char from source file to corresponding "0101.." code
-    buf = ""
-    for char in txt:
-        buf += char_code[char]
-    # Convert "01101..." string to a byte array
-    out_data = binstr2bytearray(buf)
+    # Convert "01101..." BitArray to a bytearray
+    encoded_data = buf.tobytes()
 
-    # Create out_header with the huffman tree
-    # out_header struct:
-    # size of the tree scheme
-    # tree scheme (depth scan first, 0=leaf, 1=node)
-    # characters corresponding to leafs
-    # (first leaf found in the tree scheme correspond to the first character,
-    # second leaf to the second char etc.)
+    # ----------------------------------------------------------------------- #
+    # Create the output file:
+    #   - Add a header with the tree and symbol list
+    #   - Add the encoded data
+    # ----------------------------------------------------------------------- #
+    tree_struct = huff_tree.get_bitstring_struct()
+    tree_symbols = huff_tree.get_symbols()
 
-    (treeStruct, charTable) = mytree.getTreeStruct()
-    treeStructSize = len(treeStruct)
-    print(treeStruct)
-    out_header = bytearray(struct.pack("B", treeStructSize))
-    out_header += binstr2bytearray(treeStruct)
-    out_header += bytearray(charTable.encode('utf-8'))
-    
-    out_file = open("{}.huf".format(source_file), "wb")
-    out_file.write(out_header)
-    out_file.write(out_data)
-    out_file.close()
+    header = tree_struct.tobytes()
+    header += bytearray(''.join(tree_symbols).encode('utf-8'))
 
-    # Results
-    source_size = os.path.getsize(source_file)
-    dest_size = os.path.getsize("{}.huf".format(source_file))
+    dest_filepath = "{}.huf".format(os.path.splitext(source_filepath)[0])
+    dest_file = open(dest_filepath, "wb")
+    dest_file.write(header + encoded_data)
+    dest_file.close()
 
+    # ----------------------------------------------------------------------- #
+    # Performance report
+    # ----------------------------------------------------------------------- #
+    source_size = os.path.getsize(source_filepath)
+    dest_size = os.path.getsize(dest_filepath)
     rate = 1 - (dest_size / source_size)
-    print("{}: {}b -> {}b. Compression rate: {:.2%} ".format(source_file,
-                                                             source_size,
-                                                             dest_size,
-                                                             rate))
+
+    print("{} ({}b) -> {} ({}b)".format(source_filepath,
+                                        source_size,
+                                        dest_filepath,
+                                        dest_size
+                                        ))
+    print("Compression rate: {:.2%}".format(rate))
 
 if __name__ == '__main__':
     main()
