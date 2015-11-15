@@ -9,6 +9,7 @@ It is splitted into 2 parts:
 		keywords: analog amplifier, PCB layout
 
 - Then, a huffman entropy coding python demo code to compress text file
+		keywords: algorithm, data compression, huffman coding, entropy encoding
 
 
 Don't hesitate ask questions about those personal projects.
